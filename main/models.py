@@ -26,7 +26,7 @@ class Player(models.Model):
     recharging_speed_level = models.IntegerField(validators=level_validators, default=1)
     energy_limit_level = models.IntegerField(validators=level_validators, default=1)
     rocket_count = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(3)], default=3)
-    full_energy_count = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(1)], default=1)
+    full_energy_count = models.IntegerField(validators=[MinValueValidator(0), MaxValueValidator(3)], default=3)
     energy_balance = models.IntegerField(validators=[MinValueValidator(0)], default=1000)
     coins_balance = models.IntegerField(default=0, validators=[MinValueValidator(0)])
     total_coins_earned = models.IntegerField(default=0, validators=[MinValueValidator(0)])
@@ -34,13 +34,14 @@ class Player(models.Model):
     total_earned_day = models.IntegerField(default=0, validators=[MinValueValidator(0)])
     total_earned_week = models.IntegerField(default=0, validators=[MinValueValidator(0)])
     total_coins_per_hour = models.IntegerField(default=0, validators=[MinValueValidator(0)])
+    created_at = models.DateTimeField(null=True)
 
     def save(self, *args, **kwargs):
-        if not self._state.adding:
-            db_instance = Player.objects.get(pk=self.pk)
-            if self.coins_balance > db_instance.coins_balance:
-                difference = self.coins_balance - db_instance.coins_balance
-                self.total_coins_earned += difference
+        # if not self._state.adding:
+        #     db_instance = Player.objects.get(pk=self.pk)
+        #     if self.coins_balance > db_instance.coins_balance:
+        #         difference = self.coins_balance - db_instance.coins_balance
+        #         self.total_coins_earned += difference
         super().save(*args, **kwargs)
         if self.friends.filter(pk=self.pk).exists():
             self.friends.remove(self)
@@ -82,7 +83,7 @@ class PlayerTask(models.Model):
     
 class Meme(models.Model):
     name = models.CharField(max_length=255, null=False)
-    data = models.JSONField()
+    # data = models.JSONField()
     coins_per_hour = models.IntegerField(null=False)
     upgrade_price = models.IntegerField(null=False)
     logo = models.CharField(max_length=1023)

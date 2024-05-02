@@ -19,8 +19,10 @@ from datetime import datetime, date, timedelta
 import pytz
 import time
 from typing import Callable
+import telebot
 
 # Create your views here.
+API_TOKEN = "7018093041:AAF-1Nkt9NJd8LjUvfyN2s378jv8u9W4u1A"
 HOUR = 3600
 ENERGY_MULTIPLIER = 1000
 FULL_ENERGY: Callable[[Player], int] = lambda player: player.energy_limit_level*ENERGY_MULTIPLIER
@@ -50,12 +52,14 @@ class PlayerProcessor:
         except:
             return player
         if next_league:
-            if player.total_coins_earned >= player.league.coin_limit:
+            if player.total_coins_earned >= next_league.coin_limit:
                 player.league = next_league
         return player
 
     @classmethod
     def update_coins(cls, player: Player, new_coins_count) -> Player:
+        if new_coins_count > player.coins_balance:
+            player.total_coins_earned += new_coins_count - player.coins_balance
         player.coins_balance = new_coins_count
         cls.next_League_check(player)
         return player
@@ -63,6 +67,7 @@ class PlayerProcessor:
     @classmethod
     def add_coins(cls, player: Player, coins_to_add: int) -> Player:
         player.coins_balance += coins_to_add
+        player.total_coins_earned += coins_to_add
         cls.next_League_check(player)
         return player
     
@@ -135,10 +140,21 @@ class LeagueProcessor:
             return league
         return None
 
+@csrf_exempt
+def send_invite_message(request):
+    bot = telebot.TeleBot(API_TOKEN)
+    user_id = request.POST.get("user_id")
+    bot.send_message(user_id, f"Your invite link - https://t.me/Coin_Demo_Bot?start={user_id}")
+    return HttpResponse("Invite message sended", status=200)
+
 def initialize_user(request):
     telegram_id = request.GET.get("user_id")
 
-    player = Player.objects.get(telegram_id=telegram_id)
+    try:
+        player = Player.objects.get(telegram_id=telegram_id)
+    except:
+        return HttpResponse("Invalid telegram ID", status=400)
+
     passive_income = PlayerProcessor.calculate_passive_income(player)
     player = PlayerProcessor.add_coins(player, passive_income)
     player = PlayerProcessor.calculate_energy(player)
@@ -148,13 +164,15 @@ def initialize_user(request):
 
     res = {
         "name": player.name,
-        "league": player.league.name,
+        # "league": player.league.name if player.league else "",
         "coins_count": player.coins_balance,
         "energy_count": player.energy_balance,
         "total_coins_earned": player.total_coins_earned,
         "coins_per_hour": player.total_coins_per_hour,
         "passive_income": passive_income
     }
+    if player.league:
+        res["league"] = {"id": player.league.id, "name": player.league.level, "logo": player.league.logo, "coin_limit": player.league.coin_limit, "level": player.league.level}
     if player.team:
         res["team"] = {"id":player.team.id, "name":player.team.name, "logo":player.team.logo, "total":player.team.coins_count}
 
@@ -190,23 +208,28 @@ def get_task(request):
 @csrf_exempt
 def complete_task(request):
     player_task_id = request.POST.get("task_id")
-    try:
-        player_task = PlayerTask.objects.get(id=player_task_id)
-        player_task.status = "CM"
-        player_task.completion_date = timezone.now()
-        player_task.save()
-        player = player_task.player 
-        player.coins_balance += player_task.task.coins_reward
-        player.save()
-        return JsonResponse({"status": "success"})
-    except ObjectDoesNotExist:
-        return JsonResponse(
-            {"status": "Error. Task or Player does not exist."}, status=404
-        )
-    except Exception as e:
-        return JsonResponse(
-            {"status": f"Error. An error occurred: {str(e)}"}, status=500
-        )
+    with transaction.atomic():
+        try:
+            player_task = PlayerTask.objects.get(id=player_task_id)
+            if player_task.status == "CM":
+                return JsonResponse(
+                    {"status": "Error. Task already completed."}, status=400
+                )
+            player_task.status = "CM"
+            player_task.completion_date = timezone.now()
+            player_task.save()
+            player = player_task.player 
+            player = PlayerProcessor.add_coins(player, player_task.task.coins_reward)
+            player.save()
+            return JsonResponse({"status": "success"})
+        except ObjectDoesNotExist:
+            return JsonResponse(
+                {"status": "Error. Task or Player does not exist."}, status=404
+            )
+        except Exception as e:
+            return JsonResponse(
+                {"status": f"Error. An error occurred: {str(e)}"}, status=500
+            )
 
 
 @csrf_exempt
@@ -452,13 +475,12 @@ def get_league(request):
     return JsonResponse({"league": players_league_data})
 
 def get_all_leagues(request):
-    leagues = list(League.objects.values().all())
+    leagues = list(League.objects.values().order_by("level").all())
     return JsonResponse(
         {
             "leagues": leagues
         }
     )
-
 
 def get_player_memes(request):
     user_id = request.GET.get("user_id")
@@ -479,6 +501,7 @@ def get_player_memes(request):
                     "name": meme.name,
                     "level": player_meme.current_level,
                     "coins_per_hour": player_meme.current_coins_per_hour,
+                    "upgraded_coins_per_hour": int(meme.coins_per_hour * (1.1**(player_meme.current_level+1))),
                     "upgrade_cost": player_meme.current_upgrade_cost,
                     "logo": player_meme.meme.logo,
                 }
@@ -488,8 +511,9 @@ def get_player_memes(request):
                 {
                     "meme_id": meme.id,
                     "name": meme.name,
-                    "level": 1,
-                    "coins_per_hour": meme.coins_per_hour,
+                    "level": 0,
+                    "coins_per_hour": 0,
+                    "upgraded_coins_per_hour": meme.coins_per_hour,
                     "upgrade_cost": meme.upgrade_price,
                     "logo": meme.logo,
                 }
@@ -520,12 +544,14 @@ def manage_meme(request):
         player.coins_balance -= meme.upgrade_price
         player.save()
 
+        new_upgrade_cost = meme.upgrade_price * 2
         # Create a new ownership record
         new_meme_player = MemePlayer(
             player=player,
             meme=meme,
             current_coins_per_hour=meme.coins_per_hour,
-            current_upgrade_cost=meme.upgrade_price,
+            current_upgrade_cost=new_upgrade_cost,
+            current_level=1,
         )
         new_meme_player.save()
 
@@ -544,8 +570,8 @@ def manage_meme(request):
                 "coins_per_hour": player.total_coins_per_hour,
                 "meme_details": {
                     "name": meme.name,
-                    "coins_per_hour": new_meme_player.coins_per_hour,
-                    "upgrade_cost": new_meme_player.upgrade_cost,
+                    "coins_per_hour": new_meme_player.current_coins_per_hour,
+                    "upgrade_cost": new_meme_player.current_upgrade_cost,
                 },
             }
         )
@@ -553,7 +579,7 @@ def manage_meme(request):
         # Handle upgrade
         memeplayer = MemePlayer.objects.get(player=player, meme=meme)
         next_level = memeplayer.current_level + 1
-        new_upgrade_cost = memeplayer.meme.upgrade_price * (2**next_level)
+        new_upgrade_cost = memeplayer.current_upgrade_cost * 2
 
         if player.coins_balance < new_upgrade_cost:
             return JsonResponse({"error": "Insufficient funds"}, status=400)
@@ -587,8 +613,6 @@ def manage_meme(request):
                 "coins_per_hour": player.total_coins_per_hour
             }
         )
-
-
 
 def get_memeplayer(request):
     # Assumes that 'memeplayer_id' is passed as a parameter in the GET request

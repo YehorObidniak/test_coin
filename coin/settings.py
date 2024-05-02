@@ -32,11 +32,14 @@ ALLOWED_HOSTS = [
     "http://localhost:3000",
     "http://localhost:8000",
     "localhost",
-    "entsoft-webapp.shop",
+    "ttestt.shop",
+    "https://ttestt.shop",
     "3c8d-185-42-130-97.ngrok-free.app",
-    "https://3c8d-185-42-130-97.ngrok-free.app"
+    "https://3c8d-185-42-130-97.ngrok-free.app",
+    "185.51.246.86",
+    "http://185.51.246.86"
 ]
-CSRF_TRUSTED_ORIGINS=["http://localhost:3000", "http://localhost:8000", "http://localhost:8000"]
+CSRF_TRUSTED_ORIGINS=["http://localhost:3000", "http://localhost:8000", "http://localhost:8000", "https://ttestt.shop", "https://testclickerversion.netlify.app"]
 
 
 # Application definition
@@ -97,7 +100,7 @@ DATABASES = {
         'NAME': os.getenv("DB_NAME", "coin"),
         'USER': os.getenv("DB_USER", "postgres"),
         'PASSWORD': os.getenv("DB_PASSWORD", "password"),
-        'HOST': os.getenv("DB_HOST", "db"),
+        'HOST': os.getenv("DB_HOST", "127.0.0.1"),
         'PORT': os.getenv("DB_PORT", "5432"),
     }
 }

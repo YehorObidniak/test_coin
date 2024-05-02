@@ -19,7 +19,8 @@ from .views import (
     get_all_leagues,
     get_player_memes,
     get_player_energy,
-    manage_meme
+    manage_meme,
+    send_invite_message
 )
 
 urlpatterns = [
@@ -43,5 +44,6 @@ urlpatterns = [
     path('get_player_memes', get_player_memes, name='get_player_memes'),
     path('get_player_energy', get_player_energy, name='get_player_energy'),
     path('manage_meme/', manage_meme, name='manage_meme'),
+    path('send_invite_message/', send_invite_message, name='send_invite')
     # path()
 ]
